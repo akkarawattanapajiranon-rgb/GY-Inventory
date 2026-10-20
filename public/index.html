@@ -30,9 +30,7 @@
     }
     #reader video { border-radius: 12px; object-fit: cover !important; width: 100% !important; max-height: 250px !important; }
     #reader { border: none !important; }
-    /* Hide scrollbar for Chrome, Safari and Opera */
     .no-scrollbar::-webkit-scrollbar { display: none; }
-    /* Hide scrollbar for IE, Edge and Firefox */
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
@@ -52,7 +50,7 @@
       </div>
       <div class="flex items-center space-x-2">
         <span id="headerDeptBadge" class="px-2.5 py-1 text-xs font-semibold rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
-          Mix 1
+          Band 72
         </span>
         <button onclick="openCloudModal()" id="cloudStatusBtn" class="flex items-center space-x-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-700 text-slate-300 border border-slate-600 hover:border-emerald-500 transition">
           <span id="cloudDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
@@ -113,7 +111,7 @@
       <!-- STEP 2: DATA ENTRY FORM -->
       <div id="formSection" class="bg-slate-800 rounded-2xl p-4 border border-slate-700 shadow-xl space-y-4">
         
-        <!-- Header Info Card -->
+        <!-- Header Info Card with Prefix + Run No -->
         <div class="flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-700">
           <div>
             <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">รหัสบาร์โค้ดที่สแกน</span>
@@ -127,9 +125,12 @@
             </div>
           </div>
           <div class="text-right">
-            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Run No. (ลำดับที่)</span>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Run No. (รหัสแผนก-ลำดับ)</span>
             <div class="flex items-center justify-end space-x-1 mt-0.5">
-              <input type="number" id="inputRunNo" class="w-16 bg-slate-800 text-right font-mono font-bold text-lg text-white border border-slate-600 rounded px-1.5 py-0.5 focus:ring-1 focus:ring-emerald-400 outline-none" value="1">
+              <!-- Code ตัวหน้าล้อกับแผนก -->
+              <input type="text" id="inputRunPrefix" class="w-14 bg-slate-900 text-center font-mono font-bold text-sm text-blue-400 border border-slate-600 rounded px-1 py-1 focus:ring-1 focus:ring-blue-400 outline-none uppercase" value="B72-">
+              <!-- ลำดับตัวเลข -->
+              <input type="number" id="inputRunNo" class="w-16 bg-slate-800 text-right font-mono font-bold text-base text-white border border-slate-600 rounded px-1.5 py-1 focus:ring-1 focus:ring-emerald-400 outline-none" value="1">
             </div>
           </div>
         </div>
@@ -148,21 +149,21 @@
             
             <!-- Dropdown สำหรับ 15 แผนก BTA -->
             <select id="inputDepartment" onchange="onDeptSelectChange(this.value)" class="w-full bg-slate-900 border-2 border-slate-600 focus:border-blue-400 rounded-xl px-3 py-2.5 text-sm font-bold text-white outline-none mb-2">
-              <option value="Mix 1">Mix 1</option>
-              <option value="Mix 2">Mix 2</option>
-              <option value="Auto pigment">Auto pigment</option>
-              <option value="3 roll">3 roll</option>
-              <option value="QUAD">QUAD</option>
-              <option value="TUBER">TUBER</option>
-              <option value="4roll 1">4roll 1</option>
-              <option value="4roll2">4roll2</option>
-              <option value="overlay">overlay</option>
-              <option value="Band 72">Band 72</option>
-              <option value="Band54">Band54</option>
-              <option value="Hot apex">Hot apex</option>
-              <option value="Bead in">Bead in</option>
-              <option value="Ficher">Ficher</option>
-              <option value="Hex">Hex</option>
+              <option value="Mix 1">Mix 1 (M1)</option>
+              <option value="Mix 2">Mix 2 (M2)</option>
+              <option value="Auto pigment">Auto pigment (AP)</option>
+              <option value="3 roll">3 roll (3R)</option>
+              <option value="QUAD">QUAD (QD)</option>
+              <option value="TUBER">TUBER (TB)</option>
+              <option value="4roll 1">4roll 1 (4R1)</option>
+              <option value="4roll2">4roll2 (4R2)</option>
+              <option value="overlay">overlay (OL)</option>
+              <option value="Band 72">Band 72 (B72)</option>
+              <option value="Band54">Band54 (B54)</option>
+              <option value="Hot apex">Hot apex (HA)</option>
+              <option value="Bead in">Bead in (BI)</option>
+              <option value="Ficher">Ficher (FC)</option>
+              <option value="Hex">Hex (HX)</option>
             </select>
 
             <!-- Quick Chips สำหรับกดสลับแผนกยอดนิยมเร็วๆ -->
@@ -423,15 +424,26 @@
     let html5QrCode = null;
     let isCameraRunning = false;
     let currentBarcode = '';
-    let currentRunNo = 1;
     let db = null;
     let cachedRecords = [];
 
-    const BTA_DEPARTMENTS = [
-      'Mix 1', 'Mix 2', 'Auto pigment', '3 roll', 'QUAD',
-      'TUBER', '4roll 1', '4roll2', 'overlay', 'Band 72',
-      'Band54', 'Hot apex', 'Bead in', 'Ficher', 'Hex'
-    ];
+    const DEPT_PREFIX = {
+      'Mix 1': 'M1-',
+      'Mix 2': 'M2-',
+      'Auto pigment': 'AP-',
+      '3 roll': '3R-',
+      'QUAD': 'QD-',
+      'TUBER': 'TB-',
+      '4roll 1': '4R1-',
+      '4roll2': '4R2-',
+      'overlay': 'OL-',
+      'Band 72': 'B72-',
+      'Band54': 'B54-',
+      'Hot apex': 'HA-',
+      'Bead in': 'BI-',
+      'Ficher': 'FC-',
+      'Hex': 'HX-'
+    };
 
     // --- SOUND SYNTHESIS ---
     function playBeep(type = 'success') {
@@ -716,7 +728,7 @@
       if (!isCameraRunning) startCamera();
     }
 
-    // --- FORM CALCULATIONS & 15 BTA DEPARTMENTS ---
+    // --- FORM CALCULATIONS & 15 BTA DEPARTMENTS + PREFIX ---
     function selectDept(name) {
       const select = document.getElementById('inputDepartment');
       if (select) select.value = name;
@@ -725,6 +737,14 @@
       if (badge) badge.innerText = name;
       
       localStorage.setItem('bta_dept', name);
+
+      // Auto update Prefix Code for this Department
+      const prefix = DEPT_PREFIX[name] || (name.slice(0, 3).toUpperCase() + '-');
+      const prefixInput = document.getElementById('inputRunPrefix');
+      if (prefixInput) prefixInput.value = prefix;
+
+      // Calculate next running number for this department
+      updateDeptRunNo(name);
 
       // Highlight active chip
       document.querySelectorAll('.dept-chip').forEach(btn => {
@@ -738,6 +758,24 @@
 
     function onDeptSelectChange(name) {
       selectDept(name);
+    }
+
+    function updateDeptRunNo(deptName) {
+      const deptRecords = cachedRecords.filter(r => r.department === deptName);
+      let nextNum = deptRecords.length + 1;
+      
+      // If records have numbers, find max
+      const nums = deptRecords.map(r => {
+        const str = String(r.runNo || '');
+        const match = str.match(/\d+$/);
+        return match ? parseInt(match[0], 10) : 0;
+      });
+      if (nums.length > 0) {
+        nextNum = Math.max(...nums) + 1;
+      }
+      
+      const runInput = document.getElementById('inputRunNo');
+      if (runInput) runInput.value = nextNum;
     }
 
     function setTarePreset(type, weight) {
@@ -771,8 +809,12 @@
         return;
       }
 
-      const runNoVal = document.getElementById('inputRunNo').value || currentRunNo;
       const deptVal = document.getElementById('inputDepartment').value.trim() || 'Mix 1';
+      const prefixVal = (document.getElementById('inputRunPrefix').value || '').trim();
+      const numVal = parseInt(document.getElementById('inputRunNo').value || '1', 10);
+      const numFormatted = String(numVal).padStart(3, '0');
+      const fullRunNo = prefixVal ? (prefixVal + numFormatted) : numVal;
+
       const tareVal = document.getElementById('inputTareWeight').value || '0';
       const tareTypeVal = document.getElementById('inputTareType').value.trim();
       const opVal = document.getElementById('inputOperator').value.trim();
@@ -785,7 +827,7 @@
       const timeStr = now.toLocaleTimeString('th-TH', { hour12: false });
 
       const payload = {
-        runNo: parseInt(runNoVal, 10),
+        runNo: fullRunNo,
         department: deptVal,
         barcode: currentBarcode,
         grossWeight: gross,
@@ -818,10 +860,10 @@
         }
 
         playBeep('saved');
-        showToast('บันทึกสำเร็จ! ลำดับที่ ' + payload.runNo + ' เรียบร้อย');
+        showToast('บันทึกสำเร็จ! ลำดับ ' + payload.runNo + ' เรียบร้อย');
 
-        currentRunNo = payload.runNo + 1;
-        document.getElementById('inputRunNo').value = currentRunNo;
+        // Increment number for this department
+        document.getElementById('inputRunNo').value = numVal + 1;
 
         document.getElementById('inputGrossWeight').value = '';
         currentBarcode = '';
@@ -862,11 +904,9 @@
       document.getElementById('kpiNet').innerText = totalNet.toLocaleString('en-US', { minimumFractionDigits: 2 });
       document.getElementById('recordCountText').innerText = records.length + ' รายการ';
 
-      if (records.length > 0) {
-        const maxRun = Math.max(...records.map(r => r.runNo || 0));
-        currentRunNo = maxRun + 1;
-        document.getElementById('inputRunNo').value = currentRunNo;
-      }
+      // Update next Run No for current selected department
+      const currentDept = document.getElementById('inputDepartment').value || 'Band 72';
+      updateDeptRunNo(currentDept);
 
       // Dept summary table
       const deptTbody = document.getElementById('deptSummaryTable');
@@ -894,9 +934,9 @@
           <div class="p-3 flex items-center justify-between hover:bg-slate-700/40 transition">
             <div class="space-y-0.5">
               <div class="flex items-center space-x-2">
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-700 text-slate-300">#${r.runNo}</span>
+                <span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-blue-900/60 text-blue-300 border border-blue-700/50">${r.runNo}</span>
                 <span class="text-xs font-bold text-emerald-400 font-mono tracking-wider">${r.barcode}</span>
-                <span class="text-[10px] text-blue-400 font-semibold">[${r.department}]</span>
+                <span class="text-[10px] text-slate-400 font-medium">[${r.department}]</span>
               </div>
               <div class="text-[11px] text-slate-400">
                 รวม: <span class="font-mono text-amber-300">${(r.grossWeight || 0).toFixed(2)}</span> kg |
@@ -909,7 +949,7 @@
                 <span class="text-sm font-extrabold text-emerald-400 font-mono">${(r.netWeight || 0).toFixed(2)}</span>
                 <span class="text-[10px] text-slate-400 block -mt-1">สุทธิ (kg)</span>
               </div>
-              <button onclick="deleteRecord('${r.id}', ${r.runNo})" class="text-slate-500 hover:text-red-400 p-1" title="ลบรายการ">
+              <button onclick="deleteRecord('${r.id}', '${r.runNo}')" class="text-slate-500 hover:text-red-400 p-1" title="ลบรายการ">
                 <i class="fa-solid fa-trash-can text-xs"></i>
               </button>
             </div>
@@ -932,7 +972,7 @@
     }
 
     async function deleteRecord(id, runNo) {
-      if (!confirm('ยืนยันลบรายการลำดับที่ ' + runNo + ' ?')) return;
+      if (!confirm('ยืนยันลบรายการลำดับ ' + runNo + ' ?')) return;
       try {
         if (db) {
           await db.collection('inventory').doc(id).delete();
