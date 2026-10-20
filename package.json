@@ -1,0 +1,8 @@
+{
+  "name": "inventory-plant",
+  "version": "1.0.0",
+  "description": "BTA Inventory Barcode Scanner System",
+  "scripts": {
+    "start": "node server.cjs"
+  }
+}

@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BTA Inventory Barcode Scanner (Cloud & Vercel)</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- html5-qrcode for barcode scanning -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <!-- qrcode.js for generating connection QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- SheetJS for Excel (.xlsx) export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Firebase SDK Compat CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    .scanner-laser {
+      position: absolute; top: 50%; left: 5%; width: 90%; height: 2px;
+      background: #ef4444; box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+      animation: scanLaser 2s infinite ease-in-out; z-index: 10;
+    }
+    @keyframes scanLaser {
+      0%, 100% { transform: translateY(-70px); opacity: 0.8; }
+      50% { transform: translateY(70px); opacity: 1; }
+    }
+    #reader video { border-radius: 12px; object-fit: cover !important; width: 100% !important; max-height: 250px !important; }
+    #reader { border: none !important; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased pb-20">
+
+  <!-- TOP HEADER -->
+  <header class="bg-slate-800/90 backdrop-blur border-b border-slate-700 sticky top-0 z-30 px-4 py-3 shadow-md">
+    <div class="max-w-xl mx-auto flex items-center justify-between">
+      <div class="flex items-center space-x-2">
+        <div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg border border-emerald-500/30">
+          <i class="fa-solid fa-barcode"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold text-white tracking-wide leading-tight">BTA Inventory</h1>
+          <p class="text-xs text-slate-400">????????????? Cloud Firebase</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <!-- Cloud Status Pill -->
+        <button onclick="openCloudModal()" id="cloudStatusBtn" class="flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-700 text-slate-300 border border-slate-600 hover:border-emerald-500 transition">
+          <span id="cloudDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="cloudStatusText">Cloud</span>
+        </button>
+        <button onclick="switchTab('qrTab')" title="QR ????????????" class="w-8 h-8 rounded-full bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-qrcode text-sm"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+  <main class="max-w-xl mx-auto w-full px-3 pt-3 flex-1">
+    <!-- TAB 1: SCANNER & ENTRY -->
+    <div id="scanTab" class="space-y-4">
+      
+      <!-- STEP 1: SCANNER VIEW -->
+      <div id="scannerSection" class="bg-slate-800 rounded-2xl p-4 border border-slate-700 shadow-lg">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span class="font-semibold text-sm text-slate-200">???????????????????</span>
+          </div>
+          <button id="toggleCameraBtn" onclick="toggleCamera()" class="text-xs px-2.5 py-1 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-300">
+            <i class="fa-solid fa-camera mr-1"></i> ????/????????
+          </button>
+        </div>
+
+        <!-- CAMERA VIEWFINDER -->
+        <div class="relative bg-black rounded-xl overflow-hidden border-2 border-slate-700 min-h-[220px] flex items-center justify-center">
+          <div id="reader" class="w-full"></div>
+          <div id="scanLaser" class="scanner-laser hidden"></div>
+          
+          <div id="cameraPlaceholder" class="text-center p-6 space-y-2">
+            <i class="fa-solid fa-camera-rotate text-3xl text-slate-500"></i>
+            <p class="text-xs text-slate-400">????????????????????????????????</p>
+            <button onclick="startCamera()" class="mt-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-semibold shadow-md active:scale-95 transition">
+              <i class="fa-solid fa-play mr-1.5"></i> ??????????????
+            </button>
+          </div>
+        </div>
+
+        <!-- CONTROLS -->
+        <div class="mt-3 flex items-center justify-between gap-2">
+          <label class="flex-1 text-center py-2 px-3 bg-slate-700/70 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-medium text-slate-300 cursor-pointer active:scale-95 transition">
+            <i class="fa-solid fa-camera mr-1 text-emerald-400"></i> ???????????
+            <input type="file" accept="image/*" capture="environment" class="hidden" onchange="scanFromImage(this)">
+          </label>
+          <button onclick="promptManualBarcode()" class="flex-1 py-2 px-3 bg-slate-700/70 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-medium text-slate-300 active:scale-95 transition">
+            <i class="fa-solid fa-keyboard mr-1 text-blue-400"></i> ???????????
+          </button>
+        </div>
+
+        <p class="text-[11px] text-slate-400 text-center mt-2">
+          <i class="fa-solid fa-circle-info text-slate-500 mr-1"></i> ???????? 5 ??? (???????) ???????? BA01572 (????????)
+        </p>
+      </div>
+
+      <!-- STEP 2: DATA ENTRY FORM -->
+      <div id="formSection" class="bg-slate-800 rounded-2xl p-4 border border-slate-700 shadow-xl space-y-4">
+        
+        <!-- Header Info Card -->
+        <div class="flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-700">
+          <div>
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">???????????????????</span>
+            <div class="flex items-center space-x-2 mt-0.5">
+              <span id="displayBarcode" class="text-xl font-extrabold text-emerald-400 tracking-wider font-mono">
+                - ?????? -
+              </span>
+              <button onclick="reScan()" class="text-xs text-slate-400 hover:text-white underline ml-1">
+                (????????)
+              </button>
+            </div>
+          </div>
+          <div class="text-right">
+            <span class="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Run No.</span>
+            <div class="flex items-center justify-end space-x-1 mt-0.5">
+              <input type="number" id="inputRunNo" class="w-16 bg-slate-800 text-right font-mono font-bold text-lg text-white border border-slate-600 rounded px-1.5 py-0.5 focus:ring-1 focus:ring-emerald-400 outline-none" value="1">
+            </div>
+          </div>
+        </div>
+
+        <!-- FORM INPUTS -->
+        <div class="space-y-3">
+          
+          <!-- ??????? BTA -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-300 mb-1">
+              <i class="fa-solid fa-users-line text-blue-400 mr-1"></i> ???? (??? BTA)
+            </label>
+            <div class="grid grid-cols-3 gap-1.5 mb-1.5">
+              <button type="button" onclick="selectDept('BTA-Line 1')" class="dept-btn py-1.5 px-2 text-xs font-medium rounded-lg border border-slate-600 bg-slate-700 hover:bg-slate-600 text-slate-200 text-center transition">BTA-Line 1</button>
+              <button type="button" onclick="selectDept('BTA-Line 2')" class="dept-btn py-1.5 px-2 text-xs font-medium rounded-lg border border-slate-600 bg-slate-700 hover:bg-slate-600 text-slate-200 text-center transition">BTA-Line 2</button>
+              <button type="button" onclick="selectDept('BTA-Line 3')" class="dept-btn py-1.5 px-2 text-xs font-medium rounded-lg border border-slate-600 bg-slate-700 hover:bg-slate-600 text-slate-200 text-center transition">BTA-Line 3</button>
+            </div>
+            <input type="text" id="inputDepartment" placeholder="???????????????????..." class="w-full bg-slate-900 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-white focus:border-blue-400 outline-none" value="BTA-Line 1" oninput="saveCurrentDept()">
+          </div>
+
+          <!-- ?????????? (Gross Weight) -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-semibold text-slate-300">
+                <i class="fa-solid fa-weight-hanging text-amber-400 mr-1"></i> ????????????????? (Gross Weight)
+              </label>
+              <span class="text-[11px] text-slate-400">?????: kg</span>
+            </div>
+            <div class="relative">
+              <input type="number" step="0.01" inputmode="decimal" id="inputGrossWeight" placeholder="0.00" class="w-full bg-slate-900 border-2 border-slate-600 focus:border-amber-400 rounded-xl px-4 py-2.5 text-xl font-mono font-bold text-amber-300 outline-none transition" oninput="calcNetWeight()">
+              <span class="absolute right-4 top-3 text-sm text-slate-400 font-bold">kg</span>
+            </div>
+          </div>
+
+          <!-- ?????????? (Tare Weight - ??/?????/???????) -->
+          <div>
+            <div class="flex justify-between items-center mb-1">
+              <label class="text-xs font-semibold text-slate-300">
+                <i class="fa-solid fa-cart-flatbed text-red-400 mr-1"></i> ?????????? ??/?????/??????? (Tare)
+              </label>
+              <span class="text-[11px] text-slate-400">?????: kg</span>
+            </div>
+
+            <!-- Quick Presets -->
+            <div class="flex flex-wrap gap-1.5 mb-2">
+              <button type="button" onclick="setTarePreset('??????????', 3.5)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-[11px] rounded-md text-slate-300">?????????? (3.5kg)</button>
+              <button type="button" onclick="setTarePreset('????????????', 8.0)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-[11px] rounded-md text-slate-300">???????????? (8kg)</button>
+              <button type="button" onclick="setTarePreset('????????', 15.0)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-[11px] rounded-md text-slate-300">???????? (15kg)</button>
+              <button type="button" onclick="setTarePreset('??????', 25.0)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-[11px] rounded-md text-slate-300">?????? (25kg)</button>
+              <button type="button" onclick="setTarePreset('??????', 0)" class="px-2 py-1 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-[11px] rounded-md text-slate-300">?????? (0kg)</button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <input type="text" id="inputTareType" placeholder="?????? (???? ?????)" class="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white outline-none">
+              <div class="relative">
+                <input type="number" step="0.01" inputmode="decimal" id="inputTareWeight" placeholder="0.00" class="w-full bg-slate-900 border-2 border-slate-600 focus:border-red-400 rounded-lg px-3 py-1.5 text-base font-mono font-bold text-red-300 outline-none" oninput="calcNetWeight()">
+                <span class="absolute right-3 top-2 text-xs text-slate-400 font-bold">kg</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ???????????? (Net Weight - Auto Calculated) -->
+          <div class="bg-emerald-950/50 border-2 border-emerald-500/50 rounded-xl p-3 text-center shadow-inner">
+            <span class="text-xs font-semibold text-emerald-300">
+              <i class="fa-solid fa-calculator mr-1"></i> ???????????? (Net Weight)
+            </span>
+            <div class="flex items-baseline justify-center space-x-1 my-1">
+              <span id="displayNetWeight" class="text-3xl font-extrabold text-emerald-400 font-mono tracking-tight">0.00</span>
+              <span class="text-sm font-bold text-emerald-500">kg</span>
+            </div>
+            <p class="text-[11px] text-emerald-400/80">
+              (= ??? <span id="formulaGross">0</span> - ??? <span id="formulaTare">0</span>)
+            </p>
+          </div>
+
+          <!-- Operator -->
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">????????? (Operator)</label>
+            <input type="text" id="inputOperator" placeholder="???????????..." class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 outline-none">
+          </div>
+
+        </div>
+
+        <!-- SAVE BUTTON -->
+        <button id="saveBtn" onclick="saveRecord()" class="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-base shadow-lg shadow-emerald-900/40 active:scale-98 transition flex items-center justify-center space-x-2">
+          <i class="fa-solid fa-floppy-disk text-lg"></i>
+          <span>???????????? (SAVE &amp; ???????????????)</span>
+        </button>
+
+      </div>
+    </div>
+    <!-- TAB 2: SUMMARY DASHBOARD & HISTORY -->
+    <div id="statsTab" class="space-y-4 hidden">
+      
+      <!-- Summary KPI Cards -->
+      <div class="grid grid-cols-3 gap-2">
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-3 text-center">
+          <span class="text-[11px] text-slate-400 block">?????????</span>
+          <span id="kpiCount" class="text-2xl font-extrabold text-white font-mono">0</span>
+          <span class="text-[10px] text-slate-500 block">??????</span>
+        </div>
+        <div class="bg-slate-800 border border-slate-700 rounded-xl p-3 text-center">
+          <span class="text-[11px] text-slate-400 block">??????????</span>
+          <span id="kpiGross" class="text-2xl font-extrabold text-amber-400 font-mono">0.00</span>
+          <span class="text-[10px] text-slate-500 block">kg</span>
+        </div>
+        <div class="bg-slate-800 border border-emerald-600/30 bg-emerald-950/20 rounded-xl p-3 text-center">
+          <span class="text-[11px] text-emerald-300 block">????????????</span>
+          <span id="kpiNet" class="text-2xl font-extrabold text-emerald-400 font-mono">0.00</span>
+          <span class="text-[10px] text-emerald-500/80 block">kg</span>
+        </div>
+      </div>
+
+      <!-- Department Breakdown Card -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl p-3">
+        <h3 class="text-xs font-bold text-slate-300 mb-2 flex items-center justify-between">
+          <span><i class="fa-solid fa-chart-pie text-blue-400 mr-1.5"></i> ?????????????? (??? BTA)</span>
+          <span id="deptCountBadge" class="text-[10px] px-2 py-0.5 rounded bg-slate-700 text-slate-300">0 ????</span>
+        </h3>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="text-[10px] uppercase text-slate-400 border-b border-slate-700">
+              <tr>
+                <th class="py-1.5">????</th>
+                <th class="py-1.5 text-center">?????</th>
+                <th class="py-1.5 text-right">???????? (kg)</th>
+              </tr>
+            </thead>
+            <tbody id="deptSummaryTable" class="divide-y divide-slate-700/50">
+              <tr><td colspan="3" class="py-3 text-center text-slate-500">??????????????</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Export Excel -->
+      <div class="flex gap-2">
+        <button onclick="downloadExcelXlsx()" class="flex-1 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center justify-center space-x-1.5 shadow-md active:scale-95 transition">
+          <i class="fa-solid fa-file-excel text-sm"></i>
+          <span>?????? Excel (.xlsx)</span>
+        </button>
+        <button onclick="downloadCsv()" class="py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1 border border-slate-600 active:scale-95 transition">
+          <i class="fa-solid fa-file-csv"></i>
+          <span>CSV</span>
+        </button>
+        <button onclick="loadRecords()" class="py-2.5 px-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs border border-slate-600">
+          <i class="fa-solid fa-rotate"></i>
+        </button>
+      </div>
+
+      <!-- Recent Records Table -->
+      <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
+        <div class="px-3 py-2 border-b border-slate-700 flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-300">
+            <i class="fa-solid fa-clock-rotate-left mr-1 text-slate-400"></i> ???????????????????
+          </span>
+          <span id="recordCountText" class="text-[11px] text-slate-400">0 ??????</span>
+        </div>
+        <div class="max-h-80 overflow-y-auto divide-y divide-slate-700/60" id="recordsList">
+          <div class="p-4 text-center text-xs text-slate-500">????????????????????</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TAB 3: QR CODE CONNECT SCREEN -->
+    <div id="qrTab" class="space-y-4 hidden">
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 text-center space-y-4 shadow-xl">
+        <div class="space-y-1">
+          <h2 class="text-base font-bold text-white">???? QR ???????????????????????</h2>
+          <p class="text-xs text-slate-400">?????????????????????????????? ?????????????????????????????</p>
+        </div>
+
+        <div class="bg-white p-4 rounded-xl inline-block shadow-lg mx-auto">
+          <div id="qrcodeCanvas"></div>
+        </div>
+
+        <div class="space-y-1">
+          <span class="text-[11px] text-slate-400 block">URL ??????????????????????????:</span>
+          <div class="inline-flex items-center space-x-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg">
+            <span id="serverUrlText" class="text-xs font-mono font-bold text-emerald-400">?????????...</span>
+            <button onclick="copyServerUrl()" class="text-xs text-slate-400 hover:text-white" title="??????">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="text-left bg-slate-900/60 p-3 rounded-xl border border-slate-700 text-xs text-slate-400 space-y-1">
+          <p class="font-semibold text-slate-300"><i class="fa-solid fa-cloud text-emerald-400 mr-1"></i> ???? Cloud (Firebase &amp; Vercel):</p>
+          <p>? ????????????? (???? 4G/5G) ?????????????????????????????</p>
+          <p>? ??????????? Real-Time ??????????????????????????</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- CLOUD SETUP MODAL -->
+  <div id="cloudModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+        <div class="flex items-center space-x-2">
+          <i class="fa-solid fa-fire text-amber-500 text-lg"></i>
+          <h3 class="font-bold text-sm text-white">??????? Firebase Cloud Database</h3>
+        </div>
+        <button onclick="closeCloudModal()" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="text-xs text-slate-300 space-y-2">
+        <p>????? <b>firebaseConfig</b> ??? Firebase Console ?????????????? ??????????????????????? Cloud:</p>
+        <textarea id="firebaseConfigInput" rows="6" placeholder='const firebaseConfig = {
+  apiKey: "...",
+  authDomain: "...",
+  projectId: "...",
+  storageBucket: "...",
+  messagingSenderId: "...",
+  appId: "..."
+};' class="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 font-mono text-xs text-emerald-400 outline-none focus:border-amber-400"></textarea>
+      </div>
+
+      <div class="flex gap-2">
+        <button onclick="saveFirebaseConfig()" class="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition shadow-md">
+          <i class="fa-solid fa-floppy-disk mr-1"></i> ?????????????????? Cloud
+        </button>
+        <button onclick="closeCloudModal()" class="py-2.5 px-4 bg-slate-700 text-slate-300 rounded-xl text-xs">
+          ???
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAVIGATION BAR -->
+  <nav class="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur border-t border-slate-700 z-30">
+    <div class="max-w-xl mx-auto grid grid-cols-3 h-14">
+      <button onclick="switchTab('scanTab')" id="navScan" class="flex flex-col items-center justify-center text-emerald-400 font-semibold text-[11px] transition">
+        <i class="fa-solid fa-barcode text-lg mb-0.5"></i>
+        <span>?????????</span>
+      </button>
+      <button onclick="switchTab('statsTab')" id="navStats" class="flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 text-[11px] transition">
+        <i class="fa-solid fa-chart-column text-lg mb-0.5"></i>
+        <span>??????? &amp; ???????</span>
+      </button>
+      <button onclick="switchTab('qrTab')" id="navQr" class="flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 text-[11px] transition">
+        <i class="fa-solid fa-qrcode text-lg mb-0.5"></i>
+        <span>QR ?????????</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- TOAST -->
+  <div id="toast" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold text-white flex items-center space-x-2 transition-all duration-300 opacity-0 pointer-events-none transform -translate-y-2 bg-slate-800 border border-slate-700">
+    <i id="toastIcon" class="fa-solid fa-circle-check text-emerald-400 text-sm"></i>
+    <span id="toastMsg">????????????</span>
+  </div>
+  <script>
+    let html5QrCode = null;
+    let isCameraRunning = false;
+    let currentBarcode = '';
+    let currentRunNo = 1;
+    let db = null;
+    let cachedRecords = [];
+
+    // --- SOUND SYNTHESIS ---
+    function playBeep(type = 'success') {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'success') {
+          osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(1200, audioCtx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.18);
+          osc.start(audioCtx.currentTime);
+          osc.stop(audioCtx.currentTime + 0.18);
+        } else if (type === 'saved') {
+          osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+          osc.start(audioCtx.currentTime);
+          osc.stop(audioCtx.currentTime + 0.25);
+        }
+      } catch (e) {}
+      if (navigator.vibrate) {
+        navigator.vibrate(type === 'saved' ? [80, 40, 80] : 100);
+      }
+    }
+
+    // --- TOAST ALERTS ---
+    function showToast(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toastMsg');
+      const toastIcon = document.getElementById('toastIcon');
+
+      toastMsg.innerText = msg;
+      if (isError) {
+        toast.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold text-white flex items-center space-x-2 transition-all duration-300 opacity-100 transform translate-y-0 bg-red-900 border border-red-700';
+        toastIcon.className = 'fa-solid fa-triangle-exclamation text-red-400 text-sm';
+      } else {
+        toast.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold text-white flex items-center space-x-2 transition-all duration-300 opacity-100 transform translate-y-0 bg-emerald-900 border border-emerald-700';
+        toastIcon.className = 'fa-solid fa-circle-check text-emerald-400 text-sm';
+      }
+
+      setTimeout(() => {
+        toast.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-bold text-white flex items-center space-x-2 transition-all duration-300 opacity-0 pointer-events-none transform -translate-y-2 bg-slate-800 border border-slate-700';
+      }, 2500);
+    }
+
+    // --- TAB SWITCHING ---
+    function switchTab(tabId) {
+      ['scanTab', 'statsTab', 'qrTab'].forEach(t => {
+        document.getElementById(t).classList.add('hidden');
+      });
+      document.getElementById(tabId).classList.remove('hidden');
+
+      ['navScan', 'navStats', 'navQr'].forEach(b => {
+        const btn = document.getElementById(b);
+        btn.classList.remove('text-emerald-400', 'font-semibold');
+        btn.classList.add('text-slate-400');
+      });
+
+      if (tabId === 'scanTab') {
+        document.getElementById('navScan').classList.add('text-emerald-400', 'font-semibold');
+        document.getElementById('navScan').classList.remove('text-slate-400');
+      } else if (tabId === 'statsTab') {
+        document.getElementById('navStats').classList.add('text-emerald-400', 'font-semibold');
+        document.getElementById('navStats').classList.remove('text-slate-400');
+        renderFromCache();
+      } else if (tabId === 'qrTab') {
+        document.getElementById('navQr').classList.add('text-emerald-400', 'font-semibold');
+        document.getElementById('navQr').classList.remove('text-slate-400');
+        generateQr();
+      }
+    }
+
+    // --- FIREBASE CLOUD INITIALIZATION ---
+    async function initFirebase() {
+      let configStr = localStorage.getItem('firebase_config');
+      if (!configStr) {
+        try {
+          const res = await fetch('/firebase-config.json');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.apiKey && json.projectId) {
+              configStr = JSON.stringify(json);
+            }
+          }
+        } catch(e) {}
+      }
+
+      if (!configStr) {
+        setCloudStatus(false);
+        loadLocalRecords();
+        return;
+      }
+
+      try {
+        const config = JSON.parse(configStr);
+        if (!firebase.apps.length) {
+          firebase.initializeApp(config);
+        }
+        db = firebase.firestore();
+        setCloudStatus(true);
+
+        // Listen real-time to Firestore
+        db.collection('inventory').orderBy('timestamp', 'desc').onSnapshot((snapshot) => {
+          const records = [];
+          snapshot.forEach(doc => {
+            records.push({ id: doc.id, ...doc.data() });
+          });
+          cachedRecords = records;
+          renderFromCache();
+        }, (err) => {
+          console.warn('Firestore listen error:', err);
+          setCloudStatus(false);
+          loadLocalRecords();
+        });
+
+      } catch (err) {
+        console.error('Firebase init error:', err);
+        setCloudStatus(false);
+        loadLocalRecords();
+      }
+    }
+
+    function setCloudStatus(connected) {
+      const dot = document.getElementById('cloudDot');
+      const text = document.getElementById('cloudStatusText');
+      if (connected) {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        text.innerText = 'Firebase Cloud';
+        text.className = 'text-emerald-300 font-semibold';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        text.innerText = 'Local / Setup';
+        text.className = 'text-amber-300 font-semibold';
+      }
+    }
+
+    function openCloudModal() {
+      const saved = localStorage.getItem('firebase_config') || '';
+      document.getElementById('firebaseConfigInput').value = saved;
+      document.getElementById('cloudModal').classList.remove('hidden');
+    }
+
+    function closeCloudModal() {
+      document.getElementById('cloudModal').classList.add('hidden');
+    }
+
+    function saveFirebaseConfig() {
+      let raw = document.getElementById('firebaseConfigInput').value.trim();
+      if (!raw) {
+        localStorage.removeItem('firebase_config');
+        db = null;
+        setCloudStatus(false);
+        closeCloudModal();
+        showToast('?????????? Local Mode');
+        return;
+      }
+
+      try {
+        let clean = raw;
+        if (clean.includes('firebaseConfig =')) {
+          clean = clean.split('firebaseConfig =')[1];
+        }
+        if (clean.endsWith(';')) clean = clean.slice(0, -1);
+        clean = clean.trim();
+
+        // Convert JS object to JSON if needed
+        let parsed;
+        try {
+          parsed = JSON.parse(clean);
+        } catch(e) {
+          parsed = Function('return (' + clean + ')')();
+        }
+
+        localStorage.setItem('firebase_config', JSON.stringify(parsed));
+        closeCloudModal();
+        showToast('?????? Firebase Config ???? ??????????????...');
+        setTimeout(() => { location.reload(); }, 600);
+      } catch (err) {
+        alert('?????? Config ?????????? ??????????? object { apiKey: ... } ??? Firebase Console');
+      }
+    }
+    // --- CAMERA / SCANNER ---
+    async function startCamera() {
+      try {
+        if (!html5QrCode) {
+          html5QrCode = new Html5Qrcode('reader');
+        }
+
+        document.getElementById('cameraPlaceholder').classList.add('hidden');
+        document.getElementById('scanLaser').classList.remove('hidden');
+
+        const config = {
+          fps: 15,
+          qrbox: { width: 260, height: 160 },
+          aspectRatio: 1.5,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.QR_CODE,
+            Html5QrcodeSupportedFormats.DATA_MATRIX
+          ]
+        };
+
+        await html5QrCode.start(
+          { facingMode: 'environment' },
+          config,
+          onScanSuccess,
+          onScanFailure
+        );
+
+        isCameraRunning = true;
+      } catch (err) {
+        console.warn('Camera stream error:', err);
+        document.getElementById('cameraPlaceholder').classList.remove('hidden');
+        document.getElementById('scanLaser').classList.add('hidden');
+      }
+    }
+
+    async function stopCamera() {
+      if (html5QrCode && isCameraRunning) {
+        try { await html5QrCode.stop(); } catch (e) {}
+        isCameraRunning = false;
+        document.getElementById('cameraPlaceholder').classList.remove('hidden');
+        document.getElementById('scanLaser').classList.add('hidden');
+      }
+    }
+
+    function toggleCamera() {
+      if (isCameraRunning) stopCamera(); else startCamera();
+    }
+
+    function onScanSuccess(decodedText) {
+      if (!decodedText || decodedText === currentBarcode) return;
+      playBeep('success');
+      handleBarcodeScanned(decodedText);
+    }
+
+    function onScanFailure() {}
+
+    function scanFromImage(input) {
+      if (!input.files || input.files.length === 0) return;
+      const file = input.files[0];
+      const scanner = new Html5Qrcode('reader');
+      scanner.scanFile(file, true)
+        .then(decodedText => {
+          playBeep('success');
+          handleBarcodeScanned(decodedText);
+        })
+        .catch(() => {
+          showToast('?????????????????? ??????????????????????', true);
+        });
+    }
+
+    function promptManualBarcode() {
+      const code = prompt('???????????????? (???? XPVCG ???? BA01572):', currentBarcode);
+      if (code && code.trim()) {
+        playBeep('success');
+        handleBarcodeScanned(code.trim());
+      }
+    }
+
+    function handleBarcodeScanned(code) {
+      currentBarcode = code.trim().toUpperCase();
+      document.getElementById('displayBarcode').innerText = currentBarcode;
+      
+      const grossInput = document.getElementById('inputGrossWeight');
+      grossInput.value = '';
+      calcNetWeight();
+      
+      document.getElementById('formSection').scrollIntoView({ behavior: 'smooth' });
+      setTimeout(() => { grossInput.focus(); }, 300);
+      showToast('??????????: ' + currentBarcode);
+    }
+
+    function reScan() {
+      currentBarcode = '';
+      document.getElementById('displayBarcode').innerText = '- ?????? -';
+      document.getElementById('scannerSection').scrollIntoView({ behavior: 'smooth' });
+      if (!isCameraRunning) startCamera();
+    }
+
+    // --- FORM CALCULATIONS & DEPT ---
+    function selectDept(name) {
+      document.getElementById('inputDepartment').value = name;
+      localStorage.setItem('bta_dept', name);
+
+      document.querySelectorAll('.dept-btn').forEach(btn => {
+        if (btn.innerText.trim() === name) {
+          btn.className = 'dept-btn py-1.5 px-2 text-xs font-semibold rounded-lg border border-blue-400 bg-blue-600/30 text-blue-200 text-center transition';
+        } else {
+          btn.className = 'dept-btn py-1.5 px-2 text-xs font-medium rounded-lg border border-slate-600 bg-slate-700 hover:bg-slate-600 text-slate-200 text-center transition';
+        }
+      });
+    }
+
+    function saveCurrentDept() {
+      const val = document.getElementById('inputDepartment').value.trim() || 'BTA-Line 1';
+      localStorage.setItem('bta_dept', val);
+    }
+
+    function setTarePreset(type, weight) {
+      document.getElementById('inputTareType').value = type;
+      document.getElementById('inputTareWeight').value = weight.toFixed(2);
+      calcNetWeight();
+    }
+
+    function calcNetWeight() {
+      const gross = parseFloat(document.getElementById('inputGrossWeight').value) || 0;
+      const tare = parseFloat(document.getElementById('inputTareWeight').value) || 0;
+      const net = (gross - tare).toFixed(2);
+
+      document.getElementById('displayNetWeight').innerText = net;
+      document.getElementById('formulaGross').innerText = gross.toFixed(2);
+      document.getElementById('formulaTare').innerText = tare.toFixed(2);
+    }
+
+    // --- SAVE RECORD (FIREBASE OR LOCAL) ---
+    async function saveRecord() {
+      if (!currentBarcode) {
+        showToast('???????????????????????????', true);
+        reScan();
+        return;
+      }
+
+      const grossVal = document.getElementById('inputGrossWeight').value;
+      if (!grossVal || parseFloat(grossVal) <= 0) {
+        showToast('??????????????????????????', true);
+        document.getElementById('inputGrossWeight').focus();
+        return;
+      }
+
+      const runNoVal = document.getElementById('inputRunNo').value || currentRunNo;
+      const deptVal = document.getElementById('inputDepartment').value.trim() || 'BTA-DEFAULT';
+      const tareVal = document.getElementById('inputTareWeight').value || '0';
+      const tareTypeVal = document.getElementById('inputTareType').value.trim();
+      const opVal = document.getElementById('inputOperator').value.trim();
+
+      const gross = parseFloat(grossVal);
+      const tare = parseFloat(tareVal);
+      const net = parseFloat((gross - tare).toFixed(2));
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('th-TH', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      const timeStr = now.toLocaleTimeString('th-TH', { hour12: false });
+
+      const payload = {
+        runNo: parseInt(runNoVal, 10),
+        department: deptVal,
+        barcode: currentBarcode,
+        grossWeight: gross,
+        tareWeight: tare,
+        netWeight: net,
+        tareType: tareTypeVal,
+        operator: opVal,
+        date: dateStr,
+        time: timeStr
+      };
+
+      try {
+        if (db) {
+          // CLOUD: Firebase Firestore
+          payload.timestamp = firebase.firestore.FieldValue.serverTimestamp();
+          await db.collection('inventory').add(payload);
+        } else {
+          // LOCAL FALLBACK
+          payload.id = Date.now().toString();
+          payload.timestamp = now.toISOString();
+          const localList = JSON.parse(localStorage.getItem('bta_local_records') || '[]');
+          localList.unshift(payload);
+          localStorage.setItem('bta_local_records', JSON.stringify(localList));
+          cachedRecords = localList;
+          renderFromCache();
+
+          // Also try local server if available
+          fetch('/api/records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          }).catch(() => {});
+        }
+
+        playBeep('saved');
+        showToast('????????????! ???????? ' + payload.runNo + ' ?????????');
+
+        currentRunNo = payload.runNo + 1;
+        document.getElementById('inputRunNo').value = currentRunNo;
+
+        document.getElementById('inputGrossWeight').value = '';
+        currentBarcode = '';
+        document.getElementById('displayBarcode').innerText = '- ?????? -';
+        calcNetWeight();
+
+        // USER REQUIREMENT: BOUNCE BACK TO SCAN SCREEN READY FOR NEXT ITEM
+        document.getElementById('scannerSection').scrollIntoView({ behavior: 'smooth' });
+        if (!isCameraRunning) {
+          startCamera();
+        }
+
+      } catch (err) {
+        console.error('Save error:', err);
+        showToast('?????????????????????????', true);
+      }
+    }
+
+    // --- RENDER RECORDS & STATS ---
+    function renderFromCache() {
+      const records = cachedRecords;
+      let totalGross = 0;
+      let totalTare = 0;
+      let totalNet = 0;
+      const byDept = {};
+
+      records.forEach(r => {
+        totalGross += r.grossWeight || 0;
+        totalTare += r.tareWeight || 0;
+        totalNet += r.netWeight || 0;
+
+        const dept = r.department || 'BTA-DEFAULT';
+        if (!byDept[dept]) byDept[dept] = { count: 0, net: 0 };
+        byDept[dept].count += 1;
+        byDept[dept].net += r.netWeight || 0;
+      });
+
+      document.getElementById('kpiCount').innerText = records.length;
+      document.getElementById('kpiGross').innerText = totalGross.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('kpiNet').innerText = totalNet.toLocaleString('en-US', { minimumFractionDigits: 2 });
+      document.getElementById('recordCountText').innerText = records.length + ' ??????';
+
+      if (records.length > 0) {
+        const maxRun = Math.max(...records.map(r => r.runNo || 0));
+        currentRunNo = maxRun + 1;
+        document.getElementById('inputRunNo').value = currentRunNo;
+      }
+
+      // Dept summary
+      const deptTbody = document.getElementById('deptSummaryTable');
+      const depts = Object.keys(byDept);
+      document.getElementById('deptCountBadge').innerText = depts.length + ' ????';
+
+      if (depts.length === 0) {
+        deptTbody.innerHTML = '<tr><td colspan="3" class="py-3 text-center text-slate-500">??????????????</td></tr>';
+      } else {
+        deptTbody.innerHTML = depts.map(d => `
+          <tr class="hover:bg-slate-700/30">
+            <td class="py-2 font-medium text-slate-200">${d}</td>
+            <td class="py-2 text-center text-slate-300 font-mono">${byDept[d].count}</td>
+            <td class="py-2 text-right font-bold text-emerald-400 font-mono">${byDept[d].net.toFixed(2)}</td>
+          </tr>
+        `).join('');
+      }
+
+      // Records list
+      const listDiv = document.getElementById('recordsList');
+      if (records.length === 0) {
+        listDiv.innerHTML = '<div class="p-4 text-center text-xs text-slate-500">????????????????????</div>';
+      } else {
+        listDiv.innerHTML = records.map(r => `
+          <div class="p-3 flex items-center justify-between hover:bg-slate-700/40 transition">
+            <div class="space-y-0.5">
+              <div class="flex items-center space-x-2">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-700 text-slate-300">#${r.runNo}</span>
+                <span class="text-xs font-bold text-emerald-400 font-mono tracking-wider">${r.barcode}</span>
+                <span class="text-[10px] text-blue-400 font-semibold">[${r.department}]</span>
+              </div>
+              <div class="text-[11px] text-slate-400">
+                ???: <span class="font-mono text-amber-300">${(r.grossWeight || 0).toFixed(2)}</span> kg |
+                ???: <span class="font-mono text-red-300">${(r.tareWeight || 0).toFixed(2)}</span> kg |
+                <span class="text-slate-500">${r.time || ''}</span>
+              </div>
+            </div>
+            <div class="flex items-center space-x-3">
+              <div class="text-right">
+                <span class="text-sm font-extrabold text-emerald-400 font-mono">${(r.netWeight || 0).toFixed(2)}</span>
+                <span class="text-[10px] text-slate-400 block -mt-1">????? (kg)</span>
+              </div>
+              <button onclick="deleteRecord('${r.id}', ${r.runNo})" class="text-slate-500 hover:text-red-400 p-1" title="????????">
+                <i class="fa-solid fa-trash-can text-xs"></i>
+              </button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    async function loadLocalRecords() {
+      const saved = localStorage.getItem('bta_local_records');
+      if (saved) {
+        try { cachedRecords = JSON.parse(saved); } catch(e) {}
+      } else {
+        try {
+          const res = await fetch('/api/records');
+          if (res.ok) cachedRecords = await res.json();
+        } catch(e) {}
+      }
+      renderFromCache();
+    }
+
+    async function deleteRecord(id, runNo) {
+      if (!confirm('?????????????????????? ' + runNo + ' ?')) return;
+      try {
+        if (db) {
+          await db.collection('inventory').doc(id).delete();
+        } else {
+          cachedRecords = cachedRecords.filter(r => r.id !== id);
+          localStorage.setItem('bta_local_records', JSON.stringify(cachedRecords));
+          renderFromCache();
+        }
+        showToast('??????????????');
+      } catch (e) {
+        showToast('?????????????????', true);
+      }
+    }
+
+    // --- EXCEL EXPORT VIA SHEETJS ---
+    function downloadExcelXlsx() {
+      if (!cachedRecords || cachedRecords.length === 0) {
+        showToast('??????????????????????????', true);
+        return;
+      }
+
+      const data = cachedRecords.slice().reverse().map(r => ({
+        '????? (Run No.)': r.runNo,
+        '??????': r.date,
+        '????': r.time,
+        '???? (Department)': r.department,
+        '???? Barcode': r.barcode,
+        '?????????? (Gross kg)': r.grossWeight,
+        '????????? (Tare Type)': r.tareType,
+        '?????????? (Tare kg)': r.tareWeight,
+        '???????????? (Net kg)': r.netWeight,
+        '????????? (Operator)': r.operator
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Inventory BTA');
+
+      const filename = 'inventory_bta_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+      XLSX.writeFile(wb, filename);
+      showToast('????????????? Excel ?????????');
+    }
+
+    function downloadCsv() {
+      downloadExcelXlsx();
+    }
+
+    // --- QR CODE GENERATION ---
+    function generateQr() {
+      const url = window.location.href.split('?')[0].split('#')[0];
+      document.getElementById('serverUrlText').innerText = url;
+      const qrContainer = document.getElementById('qrcodeCanvas');
+      qrContainer.innerHTML = '';
+
+      new QRCode(qrContainer, {
+        text: url,
+        width: 180,
+        height: 180,
+        colorDark: '#0f172a',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M
+      });
+    }
+
+    function copyServerUrl() {
+      const url = document.getElementById('serverUrlText').innerText;
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('?????? URL ?????????');
+      });
+    }
+
+    // --- INITIALIZATION ---
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedDept = localStorage.getItem('bta_dept') || 'BTA-Line 1';
+      selectDept(savedDept);
+
+      const savedOp = localStorage.getItem('bta_operator');
+      if (savedOp) document.getElementById('inputOperator').value = savedOp;
+      document.getElementById('inputOperator').addEventListener('change', (e) => {
+        localStorage.setItem('bta_operator', e.target.value.trim());
+      });
+
+      initFirebase();
+
+      setTimeout(() => {
+        startCamera();
+      }, 500);
+    });
+  </script>
+
+</body>
+</html>
